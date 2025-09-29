@@ -1,4 +1,5 @@
 import os
+import re
 import requests
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -9,34 +10,61 @@ from strategies import generate_base
 
 MAX_DAYS_BACK = 60  # Hanya 60 hari terakhir
 
-def get_1st_prize(date_str: str) -> str | None:
+URL_TEMPLATE = "http://live4d.jaguar20.biz/jaguarlive4d/?date={date}"
+
+def get_1st_prize_3pm(date_str: str) -> str | None:
     """
-    Scrape 1st prize 4D untuk tarikh YYYY-MM-DD dari link Jaguar4D baru.
+    Scrape 1st prize Jaguar J (3pm) untuk tarikh YYYY-MM-DD.
     Pulangkan string 4-digit jika jumpa, else None.
     """
-    url = f"http://live4d.jaguar20.biz/jaguarlive4d/?date={date_str}"
+    url = URL_TEMPLATE.format(date=date_str)
     try:
         resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
         if resp.status_code != 200:
             print(f"❌ Status bukan 200 untuk {date_str}: {resp.status_code}")
             return None
-        soup = BeautifulSoup(resp.text, "html.parser")
-        
-        # Cari nombor 1st prize — sesuaikan selector mengikut HTML sebenar
-        # Contoh: span dengan class "first" atau id "firstPz"
-        prize_tag = soup.find("span", class_="first")
-        txt = prize_tag.text.strip() if prize_tag else ""
-        if txt.isdigit() and len(txt) == 4:
-            print(f"✅ {date_str} → 1st prize: {txt}")
-            return txt
-        print(f"❌ Tidak jumpa 1st Prize untuk {date_str}")
+
+        html = resp.text
+        soup = BeautifulSoup(html, "html.parser")
+
+        # Cari teks 'Jaguar J (3pm)' dan ambil blok ada '首獎'
+        for node in soup.find_all(string=re.compile(r"Jaguar\s*J", re.I)):
+            ancestor = node.parent
+            for _ in range(6):  # naik parent 6 kali maksimum
+                if ancestor is None:
+                    break
+                text = ancestor.get_text(separator=" ", strip=True)
+                if "首獎" in text:
+                    m = re.search(r"首獎[^0-9A-Za-z]*([A-Z]?\d{4})", text)
+                    if not m:
+                        m = re.search(r"首獎.*?([A-Z]?\s*\d{4})", text)
+                    if m:
+                        raw = m.group(1)
+                        digits = ''.join(ch for ch in raw if ch.isdigit())
+                        if len(digits) == 4:
+                            print(f"✅ {date_str} → Jaguar J (3pm): {digits}")
+                            return digits
+                ancestor = ancestor.parent
+
+        # fallback regex
+        m = re.search(r"Jaguar J\s*\(3pm\).*?首獎.*?([A-Z]?\d{4})", html, re.S | re.I)
+        if m:
+            raw = m.group(1)
+            digits = ''.join(ch for ch in raw if ch.isdigit())
+            if len(digits) == 4:
+                print(f"✅ {date_str} → Jaguar J (3pm): {digits}")
+                return digits
+
+        print(f"❌ Tidak jumpa 1st Prize Jaguar J (3pm) untuk {date_str}")
     except Exception as e:
         print(f"❌ Ralat semasa request untuk {date_str}: {e}")
     return None
 
+
 def update_draws_60days(file_path: str = 'data/draws.txt', update_base: bool = False) -> str:
     """
-    Update 'data/draws.txt' dengan draw baru untuk 60 hari terakhir sahaja.
+    Update 'data/draws.txt' dengan draw Jaguar J (3pm) baru
+    untuk 60 hari terakhir sahaja.
     """
     draws = load_draws(file_path)
     existing = {d['date'] for d in draws}
@@ -53,14 +81,14 @@ def update_draws_60days(file_path: str = 'data/draws.txt', update_base: bool = F
     added = []
 
     # Langkah scrape & append
-    with open(file_path, 'a') as f:
+    with open(file_path, 'a', encoding="utf-8") as f:
         current = start_date
         while current <= end_date:
             ds = current.strftime("%Y-%m-%d")
             current += timedelta(days=1)
             if ds in existing:
                 continue
-            prize = get_1st_prize(ds)
+            prize = get_1st_prize_3pm(ds)
             if prize:
                 f.write(f"{ds} {prize}\n")
                 added.append(ds)
@@ -79,4 +107,4 @@ def update_draws_60days(file_path: str = 'data/draws.txt', update_base: bool = F
             base_now = generate_base(draws_updated, method='break', recent_n=50)
             save_base_to_file(base_now, 'data/base.txt')
 
-    return f"✔️ {len(added)} draw baru ditambah." if added else "✔️ Tiada draw baru."
+    return f"✔️ {len(added)} draw baru Jaguar J (3pm) ditambah." if added else "✔️ Tiada draw baru."
