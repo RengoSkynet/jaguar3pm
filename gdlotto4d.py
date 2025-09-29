@@ -10,7 +10,7 @@ from utils import (
     load_draws,
     load_base_from_file
 )
-from draw_scraper import update_draws
+from draw_scraper import update_draws_60days as update_draws
 from strategies import generate_base
 from prediction import generate_predictions_from_base, generate_ai_predictions
 from backtest import run_backtest, evaluate_strategies
